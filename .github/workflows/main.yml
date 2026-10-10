@@ -2,7 +2,7 @@ name: Build APK from ZIP
 
 # Put this file in your repo at:  .github/workflows/build.yml
 # Then upload the project .zip to the repo root (any name, e.g. OcrPdfArabic_fixed.zip).
-# The workflow unzips it, finds the Gradle project inside, and builds the APKs.
+# The workflow unzips it, finds the Gradle project inside, and builds app-release.apk.
 
 on:
   push:
@@ -52,18 +52,20 @@ jobs:
         working-directory: ${{ steps.unzip.outputs.dir }}
         run: ./gradlew testDebugUnitTest --stacktrace
 
-      - name: Build APKs
+      - name: Build release APK
         working-directory: ${{ steps.unzip.outputs.dir }}
-        run: ./gradlew assembleDebug assembleRelease --stacktrace
+        run: ./gradlew assembleRelease --stacktrace
 
-      - name: Collect APKs
+      - name: Collect app-release.apk only
         run: |
           mkdir -p out
-          find "${{ steps.unzip.outputs.dir }}/app/build/outputs/apk" -name '*.apk' -exec cp {} out/ \;
+          APK="$(find "${{ steps.unzip.outputs.dir }}/app/build/outputs/apk/release" -name 'app-release.apk' | head -n 1)"
+          if [ -z "$APK" ]; then echo "::error::app-release.apk not found"; exit 1; fi
+          cp "$APK" out/app-release.apk
           ls -la out
 
       - uses: actions/upload-artifact@v4
         with:
-          name: apk
-          path: out/*.apk
+          name: app-release
+          path: out/app-release.apk
           if-no-files-found: error
