@@ -1,0 +1,69 @@
+name: Build APK from ZIP
+
+# Put this file in your repo at:  .github/workflows/build.yml
+# Then upload the project .zip to the repo root (any name, e.g. OcrPdfArabic_fixed.zip).
+# The workflow unzips it, finds the Gradle project inside, and builds the APKs.
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Unzip project
+        id: unzip
+        run: |
+          set -e
+          ZIP="$(ls -t ./*.zip 2>/dev/null | head -n 1 || true)"
+          if [ -n "$ZIP" ]; then
+            echo "Unzipping $ZIP"
+            rm -rf _src && mkdir _src
+            unzip -q -o "$ZIP" -d _src
+            SEARCH=_src
+          else
+            echo "No .zip in repo root; looking for an already-extracted project"
+            SEARCH=.
+          fi
+          SETTINGS="$(find "$SEARCH" -name 'settings.gradle.kts' -not -path '*/node_modules/*' | head -n 1)"
+          if [ -z "$SETTINGS" ]; then
+            echo "::error::settings.gradle.kts not found. Upload the project zip to the repo root."
+            exit 1
+          fi
+          DIR="$(dirname "$SETTINGS")"
+          echo "Project dir: $DIR"
+          chmod +x "$DIR/gradlew"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests (does not block the APK build)
+        continue-on-error: true
+        working-directory: ${{ steps.unzip.outputs.dir }}
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Build APKs
+        working-directory: ${{ steps.unzip.outputs.dir }}
+        run: ./gradlew assembleDebug assembleRelease --stacktrace
+
+      - name: Collect APKs
+        run: |
+          mkdir -p out
+          find "${{ steps.unzip.outputs.dir }}/app/build/outputs/apk" -name '*.apk' -exec cp {} out/ \;
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: out/*.apk
+          if-no-files-found: error
